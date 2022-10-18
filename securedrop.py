@@ -1,4 +1,4 @@
-# TODO: handle user account creation and loading
+# TODO: handle user account creation and loading (if one exists) here
 
 print('Welcome to SecureDrop.\nType "help" for commands.\n')
 
@@ -17,7 +17,9 @@ def handleList():
 def handleSend():
     print("TODO")
 
+# run command logic until the user exits
 while True:
+    # read in the user's command and parse it as lowercase to make things easier
     command = input("secure_drop> ").lower()
     if command == "help":
         handleHelp()
