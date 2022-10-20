@@ -24,13 +24,50 @@ def handleHelp():
     print('  "exit" -> Exit SecureDrop')
 
 def handleAdd():
-    print("TODO")
+    name = input('Enter Full Name: ')
+    email = input('Enter Email Address: ')
+    global contact_cache
+    # ensure the user doesn't already exist
+    if contact_cache is not None:
+        for user in contact_cache:
+            if user['name'] == name or user['email'] == email:
+                print('Contact already exists. Please try again.')
+                return
+    else:
+        # use the User class to also store contacts
+        contact_cache.append(User(name, email))
+        print('Contact Added.')
+        saveContacts()
 
 def handleList():
-    print("TODO")
+    print('  The following contacts are online:')
+    # TODO: retrieve online contacts (Milestone 4)
+    # for now just treat everyone like they're online for testing purposes
+    global contact_cache
+    for user in contact_cache:
+        print(f"  * {user['name']} <{user['email']}>")
 
 def handleSend():
     print("TODO")
+
+def loadContacts():
+    if os.path.exists("contacts.json") is False or os.path.getsize("contacts.json") is 0:
+        return []
+    # TODO: decrypt file here after encryption
+    data = json.loads(open("contacts.json", "r").read())
+    contacts = []
+    for user in data:
+        contact = {"name":user['name'], "email":user['email']}
+        contacts.append(contact)
+    return contacts
+
+# save entire contact cache at once
+# TODO: encrypt this data
+def saveContacts():
+    global contact_cache
+    with open('contacts.json', 'w') as output:
+        output.write(json.dumps([x.__dict__ for x in contact_cache]))
+
 
 def createUser():
     name = input('Enter Full Name: ')
@@ -43,7 +80,8 @@ def createUser():
         print("Passwords Match.")
         enc_pass = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         # TODO: encrypt the entire file besides just the password, similar to Task 3
-        open("user.json", "w").write(json.dumps({"name": name, "email": email, "password": enc_pass}))
+        with open("user.json", "w") as output:
+            output.write(json.dumps({"name": name, "email": email, "password": enc_pass}))
         print("User Registered.")
 
 def loadUser():
@@ -66,6 +104,10 @@ def loadUser():
 
 # store user name and email for later use
 user = loadUser()
+
+# also cache all of our existing contacts
+# please do NOT name a variable the same as this or the program will break!
+contact_cache = loadContacts()
 
 if user is None:
     create = input('No users are registered with this client.\nDo you want to register a new user (y/n)? ').lower()
