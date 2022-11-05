@@ -31,13 +31,15 @@ def handleAdd():
     if contact_cache is not None:
         for user in contact_cache:
             if user['name'] == name or user['email'] == email:
-                print('Contact already exists. Please try again.')
+                # update contact entry if it exists
+                user['name'] = name
+                user['email'] = email
+                print('Contact Updated.')
                 return
-    else:
-        # use the User class to also store contacts
-        contact_cache.append(User(name, email))
-        print('Contact Added.')
-        saveContacts()
+    # use the User class to also store contacts
+    contact_cache.append(User(name, email))
+    print('Contact Added.')
+    saveContacts()
 
 def handleList():
     print('  The following contacts are online:')
