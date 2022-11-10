@@ -16,6 +16,7 @@ import os
 # libraries used:
 # pwinput: https://pypi.org/project/pwinput/
 # bcrypt: https://pypi.org/project/bcrypt/
+# cryptography: https://cryptography.io/
 #
 #-------------------------------------------------
 
@@ -93,17 +94,21 @@ def handleHelp():
 def handleAdd():
     name = input('Enter Full Name: ')
     email = input('Enter Email Address: ')
-    # Encrypting name / email, uncomment when list / add feauture figured out
-    # name = Encrypt(name)
-    # email = Encrypt(email)
+    # ensure the user cannot add themselves
+    global local_user
+    if name == local_user.name or email == local_user.email:
+        print("You may not add yourself as a contact.")
+        return
     global contact_cache
     # ensure the user doesn't already exist
+    name = Encrypt(name)
+    email = Encrypt(email)
     if contact_cache is not None:
         for user in contact_cache:
-            if user['name'] == name or user['email'] == email:
+            if user.name == name or user.email == email:
                 # update contact entry if it exists
-                user['name'] = name
-                user['email'] = email
+                user.name = name
+                user.email = email
                 print('Contact Updated.')
                 return
     # use the User class to also store contacts
@@ -117,7 +122,7 @@ def handleList():
     # for now just treat everyone like they're online for testing purposes
     global contact_cache
     for user in contact_cache:
-        print(f"  * {user['name']} <{user['email']}>")
+        print(f"  * {Decrypt(user.name)} <{Decrypt(user.email)}>")
 
 def handleSend():
     print("TODO")
@@ -125,18 +130,16 @@ def handleSend():
 def loadContacts():
     if os.path.exists("contacts.json") is False or os.path.getsize("contacts.json") == 0:
         return []
-    # TODO: decrypt file here after encryption
     data = json.loads(open("contacts.json", "r").read())
     contacts = []
     for user in data:
-        # Decryption of contacts, replace line below once the list, add function is figured out
-        # contact = {"name":Decrypt(user['name']), "email":Decrypt(user['email'])}
-        contact = {"name":user['name'], "email":user['email']}
-        contacts.append(contact)
+        # data is already encrypted here so just load it as is
+        # good to store the data encrypted in memory as an attacker
+        # could just look at the memory if they were stored decrypted
+        contacts.append(User(user['name'], user['email']))
     return contacts
 
 # save entire contact cache at once
-# TODO: encrypt this data
 def saveContacts():
     global contact_cache
     with open('contacts.json', 'w') as output:
@@ -163,7 +166,7 @@ def createUser():
         print("User Registered.")
 
 def loadUser():
-    if os.path.exists("user.json") is False:
+    if os.path.exists("user.json") is False or os.path.getsize("user.json") == 0:
         return None
     # TODO: decrypt file here after above encryption
     data = json.loads(open("user.json", "r").read())
@@ -181,13 +184,13 @@ def loadUser():
     return User(data["name"], data["email"])
 
 # store user name and email for later use
-user = loadUser()
+local_user = loadUser()
 
 # also cache all of our existing contacts
 # please do NOT name a variable the same as this or the program will break!
 contact_cache = loadContacts()
 
-if user is None:
+if local_user is None:
     create = input('No users are registered with this client.\nDo you want to register a new user (y/n)? ').lower()
     # only do anything if the user inputs yes
     if create == 'y':
