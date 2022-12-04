@@ -11,6 +11,11 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 # For urandom
 import os
+
+# Sockets
+from socketFunctionality import serverObject, clientObject
+
+
 #-------------------------------------------------
 #
 # libraries used:
@@ -125,7 +130,11 @@ def handleList():
         print(f"  * {Decrypt(user.name)} <{Decrypt(user.email)}>")
 
 def handleSend():
-    print("TODO")
+    temporary_socket_object = clientObject()
+    file_path_or_data_idk = input("Enter path or data idk: ")
+    temporary_socket_object.sendDataToServer(file_path_or_data_idk)
+    temporary_socket_object.closeConnection()
+    del temporary_socket_object 
 
 def loadContacts():
     if os.path.exists("contacts.json") is False or os.path.getsize("contacts.json") == 0:
