@@ -31,7 +31,7 @@ class User:
         self.name = name
         self.email = email
 
-
+socket = clientObject()
 
 # Usage - Return password from json in memory
 def retrievePassword():
@@ -130,11 +130,8 @@ def handleList():
         print(f"  * {Decrypt(user.name)} <{Decrypt(user.email)}>")
 
 def handleSend():
-    temporary_socket_object = clientObject()
     file_path_or_data_idk = input("Enter path or data idk: ")
-    temporary_socket_object.sendDataToServer(file_path_or_data_idk)
-    temporary_socket_object.closeConnection()
-    del temporary_socket_object 
+    socket.sendDataToServer(file_path_or_data_idk)
 
 def loadContacts():
     if os.path.exists("contacts.json") is False or os.path.getsize("contacts.json") == 0:

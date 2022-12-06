@@ -56,7 +56,8 @@ class clientObject():
         self.host_ip = "127.0.0.1"
         self.key_file = "keys/key.pem"
         self.cert_file = "keys/certificate.pem"
-        self.client_socket = self.create_socket_object()
+        # self.client_socket = self.create_socket_object()
+        
 
     def create_socket_object(self):
         try:
@@ -65,7 +66,7 @@ class clientObject():
             socket_object.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             # Wrap in ssl with our cert and private key , THIS ONLY WORKS WITH THE KEY YOU USED TO CREATE THE CERTIFICATE
             socket_object = ssl.wrap_socket(socket_object, keyfile=self.key_file, certfile=self.cert_file, ssl_version=ssl.PROTOCOL_TLSv1_2)
-            print("Socket created successfully ...")
+            #print("Socket created successfully ...")
             return socket_object
         except socket.error as error:
             print("Socket creation failed with error code: '{0}'".format(error))
@@ -85,12 +86,14 @@ class clientObject():
     # Since we are on local machine, im just going to hardcode the loopback interface to simplify input
     def sendDataToServer(self, data):
         try:
-            print("Connecting to: '{0}'".format(self.host_ip))
-            self.client_socket.connect((self.host_ip,self.connect_to_port))
-            print("Socket connected to '{0}' successfully".format(self.host_ip))
-            self.client_socket.sendall(data.encode("utf-8"))
+            temp_socket = self.create_socket_object()
+            #print("Connecting to: '{0}'".format(self.host_ip))
+            temp_socket.connect((self.host_ip,self.connect_to_port))
+            #print("Socket connected to '{0}' successfully".format(self.host_ip))
+            temp_socket.sendall(data.encode("utf-8"))
             # Wait for response
-            print(self.client_socket.recv(1024).decode())
+            print(temp_socket.recv(1024).decode())
+            temp_socket.close()
         except socket.error as error:
             print("Socket creation failed with error code: '{0}'".format(error))
 
