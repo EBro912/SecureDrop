@@ -6,7 +6,7 @@ import json
 import pwinput
 import bcrypt
 from base64 import b64encode, b64decode
-import secureUtil
+from secureUtil import secureUtil
 
 #-------------------------------------------------
 #
