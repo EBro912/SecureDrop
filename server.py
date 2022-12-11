@@ -1,5 +1,10 @@
-from socketFunctionality import serverObject
+# from socketFunctionality import serverObject
 
 
-server = serverObject()
-server.listenServer()
+# server = serverObject()
+# server.listenServer()
+
+from multiThreadedSockets import serverSide
+
+server = serverSide()
+server.startServer()

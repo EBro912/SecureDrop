@@ -2,6 +2,22 @@ import socket
 import os
 from _thread import *
 import ssl
+import json
+import pwinput
+import bcrypt
+from base64 import b64encode, b64decode
+import secureUtil
+
+#-------------------------------------------------
+#
+# libraries used:
+# pwinput: https://pypi.org/project/pwinput/
+# bcrypt: https://pypi.org/project/bcrypt/
+# cryptography: https://cryptography.io/
+#
+#-------------------------------------------------
+
+util = secureUtil()
 
 class serverSide():
     # If the filepath changes, or you wnat to change port/ host etc
@@ -61,6 +77,12 @@ class serverSide():
         print("Connected to: {0}:{1}".format(address[0],str(address[1])))
         start_new_thread(self.handleClient, (client, ))
 
+# user object
+class User:
+    # don't store the password in memory
+    def __init__(self, name, email):
+        self.name = name
+        self.email = email
 
 # Client side
 class clientSide():
@@ -70,6 +92,98 @@ class clientSide():
         self.cert_file = "keys/certificate.pem"
         self.key_file = "keys/key.pem"
         self.client_socket = self.createSSLSocket()
+        self.local_user = self.loadUser()
+        self.contacts = self.loadContacts()
+
+    # creates a new user if one doesnt exist
+    def createUser(self):
+        name = input('Enter Full Name: ')
+        email = input('Enter Email Address: ')
+        password = pwinput.pwinput()
+        reenter = pwinput.pwinput('Re-enter Password: ')
+        if password != reenter:
+            print("Passwords Do Not Match.")
+        else:
+            print("Passwords Match.")
+            enc_pass = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            # This is the salt used individually for each user, it is okay to store it in plaintext as it is only
+            # used to stop rainbow table attacks
+            salt = os.urandom(16)
+            # Makes it storable in json,its random bytes so cant just use decode
+            salt = b64encode(salt).decode('utf-8')
+            with open("user.json", "w") as output:
+                output.write(json.dumps({"name": name, "email": email, "password": enc_pass, "salt": salt}))
+            print("User Registered.")
+
+    # loads the user data from the filesystem
+    def loadUser(self):
+        if os.path.exists("user.json") is False or os.path.getsize("user.json") == 0:
+            return None
+        # TODO: decrypt file here after above encryption
+        data = json.loads(open("user.json", "r").read())
+        # if the user.json file is wrong, treat it as if the user file doesn't exist
+        if data["name"] is None or data["email"] is None or data["password"] is None:
+            return None
+        while True:
+            entered_email = input('Enter Email Address: ')
+            entered_password = pwinput.pwinput('Enter Password: ')
+            if entered_email != data["email"] or bcrypt.checkpw(entered_password.encode('utf-8'), str(data["password"]).encode('utf-8')) is False:
+                print('Email and Password Combination Invalid.')
+            else:
+                break
+        # dont store the users password in this object, as it isnt needed anymoren
+        return User(data["name"], data["email"])
+
+    # loads the user's contacts from the filesystem
+    def loadContacts(self):
+        if os.path.exists("contacts.json") is False or os.path.getsize("contacts.json") == 0:
+            return []
+        data = json.loads(open("contacts.json", "r").read())
+        contacts = []
+        for user in data:
+            # data is already encrypted here so just load it as is
+            # good to store the data encrypted in memory as an attacker
+            # could just look at the memory if they were stored decrypted
+            contacts.append(User(user['name'], user['email']))
+        return contacts
+
+    # saves the user's contacts to the filesystem
+    # TODO: also update contacts on the server
+    def saveContacts(self):
+        with open('contacts.json', 'w') as output:
+            output.write(json.dumps([x.__dict__ for x in self.contacts]))
+
+    # handles adding a new contact to the user's contact list
+    def handleAdd(self):
+        name = input('Enter Full Name: ')
+        email = input('Enter Email Address: ')
+        # ensure the user cannot add themselves
+        if name == self.local_user.name or email == self.local_user.email:
+            print("You may not add yourself as a contact.")
+            return
+        # ensure the user doesn't already exist
+        name = util.Encrypt(name)
+        email = util.Encrypt(email)
+        if self.contacts is not None:
+            for user in self.contacts:
+                if user.name == name or user.email == email:
+                    # update contact entry if it exists
+                    user.name = name
+                    user.email = email
+                    print('Contact Updated.')
+                    return
+        # use the User class to also store contacts
+        self.contacts.append(User(name, email))
+        print('Contact Added.')
+        self.saveContacts()
+    
+    # handles listing the user's contacts
+    def handleList(self):
+        print('  The following contacts are online:')
+        # TODO: retrieve online contacts (Milestone 4)
+        # for now just treat everyone like they're online for testing purposes
+        for user in self.contacts:
+            print(f"  * {util.Decrypt(user.name)} <{util.Decrypt(user.email)}>")
 
     # Creates SSL socket
     def createSSLSocket(self):
@@ -86,47 +200,63 @@ class clientSide():
 
     # Initiates connection and starts UI
     def startClient(self):
+        if self.local_user is None:
+            create = input('No users are registered with this client.\nDo you want to register a new user (y/n)? ').lower()
+            # only do anything if the user inputs yes
+            if create == 'y':
+                self.createUser()
+            print("Exiting SecureDrop.")
+            exit()
         try:
             self.client_socket.connect((self.connect_to_host,self.connect_to_port))
         except socket.error as e:
             print(str(e))
         response = self.client_socket.recv(2048)
         print(response.decode())
+        print('Welcome to SecureDrop.\nType "help" for commands.\n')
         while True:
             self.handleUI()
 
     # This is where to handle options / adding file functionality etc -----
+    # TODO: remove debug response.decode() statements
     def handleUI(self):
-        while True:
-            choice = input("1. Input message to send\n2. Send file\n8. Exit server\n9. Send Shutdown Message to Server\nChoose option: ")
-            if choice == "1":
-                message = input("Please enter message to send: ")
-                self.client_socket.send(message.encode())
-                response = self.client_socket.recv(2048)
-                print(response.decode())
-            elif choice == "2":
-                file_path = input("Enter filepath: ")
-                with open(file_path, "r") as read_file:
-                    temp = read_file.read()
-                self.client_socket.send(temp.encode())
-                response = self.client_socket.recv(2048)
-                print(response.decode())
-            elif choice == "8":
-                self.client_socket.send("EXIT".encode())
-                response = self.client_socket.recv(2048)
-                print(response.decode())
-                print("Exiting... Goodbye :)")
+        #choice = input("1. Input message to send\n2. Send file\n8. Exit server\n9. Send Shutdown Message to Server\nChoose option: ")
+        choice = input("secure_drop> ").lower()
+        if choice == "help":
+            print('  "add" -> Add a new contact')
+            print('  "list" -> List all online contacts')
+            print('  "send" -> Transfer file to contact')
+            print('  "exit" -> Exit SecureDrop')
+            print('  "shutdown" -> DEBUG COMMAND. Shuts down the server')
+        elif choice == "exit":
+            self.client_socket.send("EXIT".encode())
+            response = self.client_socket.recv(2048)
+            print(response.decode())
+            self.client_socket.close()
+            exit()
+        elif choice == "shutdown":
+            self.client_socket.send("SHUTDOWN".encode())
+            response = self.client_socket.recv(2048)
+            print(response.decode())
+            print("Exiting... Goodbye :)")
+            try:
                 self.client_socket.close()
-                exit()
-            elif choice == "9":
-                self.client_socket.send("SHUTDOWN".encode())
-                response = self.client_socket.recv(2048)
-                print(response.decode())
-                print("Exiting... Goodbye :)")
-                try:
-                    self.client_socket.close()
-                except socket.error as e:
-                    print(str(e))
-                exit()
-            else:
-                print("Error deciding option. Try again")
+            except socket.error as e:
+                print(str(e))
+            exit()
+        elif choice == "add":
+            self.handleAdd()
+        elif choice == "list":
+            self.handleList()
+        # TODO: make this require a contact and path parameter
+        # as per the requirements
+        elif choice == "send":
+            file_path = input("Enter filepath: ")
+            with open(file_path, "r") as read_file:
+                temp = read_file.read()
+            self.client_socket.send(temp.encode())
+            response = self.client_socket.recv(2048)
+            print(response.decode())
+        else:
+                print('Unknown command.\nType "help" for commands.\n')
+            
