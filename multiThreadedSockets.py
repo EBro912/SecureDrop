@@ -7,6 +7,8 @@ import pwinput
 import bcrypt
 from base64 import b64encode, b64decode
 from secureUtil import secureUtil
+from threading import Thread
+import sys
 
 #-------------------------------------------------
 #
@@ -65,7 +67,7 @@ class serverSide():
                 connection.sendall("Shutdown Initiated. Goodbye!".encode())
                 connection.close()
                 # Unclean exit but quick...
-                os._exit(1)
+                sys.exit(1)
             # I just have it sending back what the client sent, change to whatever you want to send back
             reply = "Server: {0}".format(message)
             connection.sendall(reply.encode())
@@ -75,7 +77,9 @@ class serverSide():
     def handleConnections(self):
         client, address = self.server_socket.accept()
         print("Connected to: {0}:{1}".format(address[0],str(address[1])))
-        start_new_thread(self.handleClient, (client, ))
+        thread = Thread(target=self.handleClient(client))
+        thread.daemon = True
+        thread.start()
 
 # user object
 class User:
