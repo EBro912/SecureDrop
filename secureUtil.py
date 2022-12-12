@@ -9,12 +9,12 @@ import json
 
 class secureUtil():
     # Usage - Return password from json in memory
-    def retrievePassword():
+    def retrievePassword(self):
         data = json.loads(open("user.json", "r").read())
         return data["password"]
 
     # Usage - Return salt from json in memory
-    def retrieveSalt():
+    def retrieveSalt(self):
         data = json.loads(open("user.json", "r").read())
         hold = b64decode(data["salt"])
         return hold

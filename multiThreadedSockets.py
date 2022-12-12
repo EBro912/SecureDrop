@@ -10,6 +10,7 @@ from secureUtil import secureUtil
 from threading import Thread
 import sys
 
+import pickle
 #-------------------------------------------------
 #
 # libraries used:
@@ -54,6 +55,17 @@ class serverSide():
         while True:
             self.handleConnections()
 
+    def handleReceivingContacts(self, contacts):
+        # MESSAGE = INCOMING CONTACTS
+        pickle_object = pickle.loads(contacts)
+        print(pickle_object.name)
+        print(pickle_object.email)
+        # for x in [contact1, contact2]
+        for x in pickle_object.contacts:
+            # This has each ENCRYPTED contact name, x is a User class , so attr-> name, email
+            print("Contact Name: {0}\nContact Email: {1}\n----------------------".format(x.name, x.email))
+        return pickle_object
+
     # USE THIS to handle incoming requests to the server
     def handleClient(self,connection):
         connection.send("Welcome to the server".encode())
@@ -62,6 +74,11 @@ class serverSide():
             message = data.decode('utf-8')
             if message == "EXIT":
                 break
+            elif message == "INCOMING CONTACTS":
+                # Pass raw data, this is receving the pickled object
+                temp = connection.recv(2048)
+                # Below class has attr -> name, email and list of Users with attrs -> name, email
+                this_is_the_class_you_can_use = self.handleReceivingContacts(temp)
             elif message == "SHUTDOWN":
                 print("Shutting Down Server ...")
                 connection.sendall("Shutdown Initiated. Goodbye!".encode())
@@ -88,6 +105,14 @@ class User:
         self.name = name
         self.email = email
 
+# For combining contacts and User ^ could combine if you wanted to, would require some changing
+class TempClass:
+
+    def __init__(self, name, email, contacts):
+        self.name = name
+        self.email = email
+        self.contacts = contacts
+
 # Client side
 class clientSide():
     def __init__(self):
@@ -98,6 +123,17 @@ class clientSide():
         self.client_socket = self.createSSLSocket()
         self.local_user = self.loadUser()
         self.contacts = self.loadContacts()
+
+    # Send class with name, emial, contacts to server
+    def sendObjectToServer(self):
+        # Quick decryption
+        decrypted_contacts = []
+        for user in self.contacts:
+            decrypted_contacts.append(User(util.Decrypt(user.name),util.Decrypt(user.email)))
+        temp = TempClass(self.local_user.name,self.local_user.email,decrypted_contacts)
+        temp_pickle_string = pickle.dumps(temp)
+        self.client_socket.send("INCOMING CONTACTS".encode())
+        self.client_socket.send(temp_pickle_string)
 
     # creates a new user if one doesnt exist
     def createUser(self):
@@ -156,6 +192,7 @@ class clientSide():
     def saveContacts(self):
         with open('contacts.json', 'w') as output:
             output.write(json.dumps([x.__dict__ for x in self.contacts]))
+        self.sendObjectToServer()
 
     # handles adding a new contact to the user's contact list
     def handleAdd(self):
@@ -231,6 +268,8 @@ class clientSide():
             print('  "list" -> List all online contacts')
             print('  "send" -> Transfer file to contact')
             print('  "exit" -> Exit SecureDrop')
+            # Change however you want, just here to implement
+            print('  "send contacts" -> Transfer contacts')
             print('  "shutdown" -> DEBUG COMMAND. Shuts down the server')
         elif choice == "exit":
             self.client_socket.send("EXIT".encode())
@@ -261,6 +300,9 @@ class clientSide():
             self.client_socket.send(temp.encode())
             response = self.client_socket.recv(2048)
             print(response.decode())
+        # FOR TESTING, rename however you see fit
+        elif choice == "send contacts":
+            self.sendObjectToServer()
         else:
-                print('Unknown command.\nType "help" for commands.\n')
+            print('Unknown command.\nType "help" for commands.\n')
             
