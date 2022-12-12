@@ -30,6 +30,7 @@ class serverSide():
         self.key_file = "keys/key.pem"
         self.cert_file = "keys/certificate.pem"
         self.server_socket = self.createSSLSocket()
+        self.logged_in_users = []
 
     # Creates SSL wrapped socket
     def createSSLSocket(self):
@@ -55,30 +56,38 @@ class serverSide():
         while True:
             self.handleConnections()
 
-    def handleReceivingContacts(self, contacts):
-        # MESSAGE = INCOMING CONTACTS
-        pickle_object = pickle.loads(contacts)
-        print(pickle_object.name)
-        print(pickle_object.email)
-        # for x in [contact1, contact2]
-        for x in pickle_object.contacts:
-            # This has each ENCRYPTED contact name, x is a User class , so attr-> name, email
-            print("Contact Name: {0}\nContact Email: {1}\n----------------------".format(x.name, x.email))
-        return pickle_object
+    def handleReceivingContacts(self, data):
+        # unpickle user login data
+        pickle_object = pickle.loads(data)
+        # add the user to the list of logged in users
+        self.logged_in_users.append(pickle_object)
+
+    # removes a user from the logged in users list
+    # this assumes that only one user with the given name and email exists at a time
+    def handleLogout(self, data):
+        pickle_object = pickle.loads(data)
+        for user in self.logged_in_users:
+            if user.name == pickle_object.name and user.email == pickle_object.email:
+                self.logged_in_users.remove(user)
+                return
+
+    # checks if the a user with the given name and email is logged in/online
+    def isUserLoggedIn(self, name, email):
+        return any(x.name == name and x.email == email for x in self.logged_in_users)
 
     # USE THIS to handle incoming requests to the server
     def handleClient(self,connection):
-        connection.send("Welcome to the server".encode())
         while True:
             data = connection.recv(2048)
             message = data.decode('utf-8')
             if message == "EXIT":
-                break
-            elif message == "INCOMING CONTACTS":
+                data = connection.recv(2048)
+                self.handleLogout()
+                connection.close()
+            elif message == "LOGIN":
                 # Pass raw data, this is receving the pickled object
-                temp = connection.recv(2048)
-                # Below class has attr -> name, email and list of Users with attrs -> name, email
-                this_is_the_class_you_can_use = self.handleReceivingContacts(temp)
+                data = connection.recv(2048)
+                self.handleReceivingContacts(data)
             elif message == "SHUTDOWN":
                 print("Shutting Down Server ...")
                 connection.sendall("Shutdown Initiated. Goodbye!".encode())
@@ -88,7 +97,6 @@ class serverSide():
             # I just have it sending back what the client sent, change to whatever you want to send back
             reply = "Server: {0}".format(message)
             connection.sendall(reply.encode())
-        connection.close()
 
     # Multithreading
     def handleConnections(self):
@@ -106,7 +114,7 @@ class User:
         self.email = email
 
 # For combining contacts and User ^ could combine if you wanted to, would require some changing
-class TempClass:
+class ServerUser:
 
     def __init__(self, name, email, contacts):
         self.name = name
@@ -124,15 +132,17 @@ class clientSide():
         self.local_user = self.loadUser()
         self.contacts = self.loadContacts()
 
-    # Send class with name, emial, contacts to server
+    # Send class with name, email, contacts to server
     def sendObjectToServer(self):
-        # Quick decryption
-        decrypted_contacts = []
-        for user in self.contacts:
-            decrypted_contacts.append(User(util.Decrypt(user.name),util.Decrypt(user.email)))
-        temp = TempClass(self.local_user.name,self.local_user.email,decrypted_contacts)
+        temp = ServerUser(self.local_user.name,self.local_user.email,self.contacts)
         temp_pickle_string = pickle.dumps(temp)
-        self.client_socket.send("INCOMING CONTACTS".encode())
+        self.client_socket.send("LOGIN".encode())
+        self.client_socket.send(temp_pickle_string)
+
+    # Send only our name and email when we log out
+    def sendLogoutToServer(self):
+        temp_pickle_string = pickle.dumps(self.local_user)
+        self.client_socket.send("EXIT".encode())
         self.client_socket.send(temp_pickle_string)
 
     # creates a new user if one doesnt exist
@@ -252,8 +262,8 @@ class clientSide():
             self.client_socket.connect((self.connect_to_host,self.connect_to_port))
         except socket.error as e:
             print(str(e))
-        response = self.client_socket.recv(2048)
-        print(response.decode())
+        # send our information to the server when we log in
+        self.sendObjectToServer()
         print('Welcome to SecureDrop.\nType "help" for commands.\n')
         while True:
             self.handleUI()
@@ -268,13 +278,9 @@ class clientSide():
             print('  "list" -> List all online contacts')
             print('  "send" -> Transfer file to contact')
             print('  "exit" -> Exit SecureDrop')
-            # Change however you want, just here to implement
-            print('  "send contacts" -> Transfer contacts')
             print('  "shutdown" -> DEBUG COMMAND. Shuts down the server')
         elif choice == "exit":
-            self.client_socket.send("EXIT".encode())
-            response = self.client_socket.recv(2048)
-            print(response.decode())
+            self.sendLogoutToServer()
             self.client_socket.close()
             exit()
         elif choice == "shutdown":
@@ -300,9 +306,6 @@ class clientSide():
             self.client_socket.send(temp.encode())
             response = self.client_socket.recv(2048)
             print(response.decode())
-        # FOR TESTING, rename however you see fit
-        elif choice == "send contacts":
-            self.sendObjectToServer()
         else:
             print('Unknown command.\nType "help" for commands.\n')
             
