@@ -62,6 +62,14 @@ class serverSide():
         # add the user to the list of logged in users
         self.logged_in_users.append(pickle_object)
 
+    def handleUpdateContacts(self, data):
+        # unpickle user login data
+        pickle_object = pickle.loads(data)
+        for user in self.logged_in_users:
+            if user.name == pickle_object.name and user.email == pickle_object.email:
+                user.contacts = pickle_object.contacts
+                return
+
     # Check passed contact list from user against online contacts
     def checkOnlineUser(self, data):
         pickle_object = pickle.loads(data)
@@ -106,6 +114,9 @@ class serverSide():
                 # Pass raw data, this is receving the pickled object
                 data = connection.recv(2048)
                 self.handleReceivingContacts(data)
+            elif message == "UPDATE CONTACTS":
+                data = connection.recv(2048)
+                self.handleUpdateContacts(data)
             elif message == "LIST USERS":
                 # Check if users are online from users contact, send them user object
                 data = connection.recv(2048)
@@ -157,7 +168,6 @@ class clientSide():
     def sendObjectToServer(self):
         temp = ServerUser(self.local_user.name,self.local_user.email,self.contacts)
         temp_pickle_string = pickle.dumps(temp)
-        self.client_socket.send("LOGIN".encode())
         self.client_socket.send(temp_pickle_string)
 
     # Send only our name and email when we log out
@@ -202,8 +212,8 @@ class clientSide():
                 print('Email and Password Combination Invalid.')
             else:
                 break
-        # dont store the users password in this object, as it isnt needed anymoren
-        return User(data["name"], data["email"])
+        # dont store the users password in this object, as it isnt needed anymore
+        return User(util.Encrypt(data["name"]), util.Encrypt(data["email"]))
 
     # loads the user's contacts from the filesystem
     def loadContacts(self):
@@ -219,10 +229,10 @@ class clientSide():
         return contacts
 
     # saves the user's contacts to the filesystem
-    # TODO: also update contacts on the server
     def saveContacts(self):
         with open('contacts.json', 'w') as output:
             output.write(json.dumps([x.__dict__ for x in self.contacts]))
+        self.client_socket.send("UPDATE CONTACTS".encode())
         self.sendObjectToServer()
 
     # handles adding a new contact to the user's contact list
@@ -230,7 +240,7 @@ class clientSide():
         name = input('Enter Full Name: ')
         email = input('Enter Email Address: ')
         # ensure the user cannot add themselves
-        if name == self.local_user.name or email == self.local_user.email:
+        if name == util.Decrypt(self.local_user.name) or email == util.Decrypt(self.local_user.email):
             print("You may not add yourself as a contact.")
             return
         # ensure the user doesn't already exist
@@ -251,7 +261,6 @@ class clientSide():
     
     # handles listing the user's contacts
     def handleList(self):
-        print("made it to handle list")
         self.client_socket.send("LIST USERS".encode())
         # Debugging - Alex
         # print(self.contacts[0].name)
@@ -287,6 +296,7 @@ class clientSide():
         except socket.error as e:
             print(str(e))
         # send our information to the server when we log in
+        self.client_socket.send("LOGIN".encode())
         self.sendObjectToServer()
         print('Welcome to SecureDrop.\nType "help" for commands.\n')
         while True:
