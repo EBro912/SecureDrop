@@ -74,12 +74,19 @@ class serverSide():
     def checkOnlineUser(self, data):
         pickle_object = pickle.loads(data)
         online_users = "The following contacts are online:"
-        # debugging - Alex
-        # for contact in pickle_object.contacts:
-        #     print("\n* {0} <{1}>".format(contact.name, contact.email))
-        for contact in pickle_object.contacts:
-            if self.isUserLoggedIn(contact.name,contact.email):
-                online_users += "\n* {0} <{1}>".format(contact.name, contact.email)
+        target = None
+        for user in self.logged_in_users:
+            if user.name == pickle_object.name and user.email == pickle_object.email:
+                target = user
+                break
+        if target is None:
+            print("Error: Could not find target user with data " + pickle_object)
+            return
+        for contact in target.contacts:
+            name = util.Decrypt(contact.name, target.password, target.salt)
+            email = util.Decrypt(contact.email, target.password, target.salt)
+            if self.isUserLoggedIn(name,email):
+                online_users += "\n* {0} <{1}>".format(name, email)
         return online_users.encode()
 
     # removes a user from the logged in users list
@@ -108,7 +115,7 @@ class serverSide():
             message = data.decode('utf-8')
             if message == "EXIT":
                 data = connection.recv(2048)
-                self.handleLogout()
+                self.handleLogout(data)
                 connection.close()
             elif message == "LOGIN":
                 # Pass raw data, this is receving the pickled object
@@ -242,7 +249,7 @@ class clientSide():
         email = input('Enter Email Address: ')
         # ensure the user cannot add themselves
         data = json.loads(open("user.json", "r").read())
-        if name == util.Decrypt(self.local_user.name, data["password"], data["salt"]) or email == util.Decrypt(self.local_user.email, data["password"], data["salt"]):
+        if name == self.local_user.name or email == self.local_user.email:
             print("You may not add yourself as a contact.")
             return
         # ensure the user doesn't already exist
@@ -266,7 +273,7 @@ class clientSide():
         self.client_socket.send("LIST USERS".encode())
         # Debugging - Alex
         # print(self.contacts[0].name)
-        pickle_message = pickle.dumps(ServerUser(self.local_user.name,self.local_user.email,self.contacts))
+        pickle_message = pickle.dumps(self.local_user)
         self.client_socket.send(pickle_message)
         response = self.client_socket.recv(2048)
         print(response.decode())
