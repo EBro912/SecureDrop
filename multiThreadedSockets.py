@@ -7,7 +7,7 @@ import pwinput
 import bcrypt
 from base64 import b64encode, b64decode
 from secureUtil import secureUtil
-from threading import Thread
+# from threading import Thread
 import sys
 
 import pickle
@@ -62,6 +62,18 @@ class serverSide():
         # add the user to the list of logged in users
         self.logged_in_users.append(pickle_object)
 
+    # Check passed contact list from user against online contacts
+    def checkOnlineUser(self, data):
+        pickle_object = pickle.loads(data)
+        online_users = "The following contacts are online:"
+        # debugging - Alex
+        # for contact in pickle_object.contacts:
+        #     print("\n* {0} <{1}>".format(contact.name, contact.email))
+        for contact in pickle_object.contacts:
+            if self.isUserLoggedIn(contact.name,contact.email):
+                online_users += "\n* {0} <{1}>".format(contact.name, contact.email)
+        return online_users.encode()
+
     # removes a user from the logged in users list
     # this assumes that only one user with the given name and email exists at a time
     def handleLogout(self, data):
@@ -74,6 +86,12 @@ class serverSide():
     # checks if the a user with the given name and email is logged in/online
     def isUserLoggedIn(self, name, email):
         return any(x.name == name and x.email == email for x in self.logged_in_users)
+        # Debugging - Alex
+        # for user in self.logged_in_users:
+        #     print("Currently checking -> {0} , {1}\n {2} , {3}".format(name,email,user.name,user.email))
+        #     if user.name == name and user.email == email:
+        #         print("equal")
+        #         return True
 
     # USE THIS to handle incoming requests to the server
     def handleClient(self,connection):
@@ -88,23 +106,26 @@ class serverSide():
                 # Pass raw data, this is receving the pickled object
                 data = connection.recv(2048)
                 self.handleReceivingContacts(data)
+            elif message == "LIST USERS":
+                # Check if users are online from users contact, send them user object
+                data = connection.recv(2048)
+                connection.send(self.checkOnlineUser(data))
             elif message == "SHUTDOWN":
                 print("Shutting Down Server ...")
                 connection.sendall("Shutdown Initiated. Goodbye!".encode())
                 connection.close()
-                # Unclean exit but quick...
-                sys.exit(1)
+                # Unclean
+                os._exit(1)
             # I just have it sending back what the client sent, change to whatever you want to send back
-            reply = "Server: {0}".format(message)
-            connection.sendall(reply.encode())
+            # reply = "Server: {0}".format(message)
+            # connection.sendall(reply.encode())
 
     # Multithreading
     def handleConnections(self):
         client, address = self.server_socket.accept()
         print("Connected to: {0}:{1}".format(address[0],str(address[1])))
-        thread = Thread(target=self.handleClient(client))
-        thread.daemon = True
-        thread.start()
+        # Not sure what went wrong, reverted back to old threading - Alex
+        start_new_thread(self.handleClient, (client,))
 
 # user object
 class User:
@@ -230,11 +251,14 @@ class clientSide():
     
     # handles listing the user's contacts
     def handleList(self):
-        print('  The following contacts are online:')
-        # TODO: retrieve online contacts (Milestone 4)
-        # for now just treat everyone like they're online for testing purposes
-        for user in self.contacts:
-            print(f"  * {util.Decrypt(user.name)} <{util.Decrypt(user.email)}>")
+        print("made it to handle list")
+        self.client_socket.send("LIST USERS".encode())
+        # Debugging - Alex
+        # print(self.contacts[0].name)
+        pickle_message = pickle.dumps(ServerUser(self.local_user.name,self.local_user.email,self.contacts))
+        self.client_socket.send(pickle_message)
+        response = self.client_socket.recv(2048)
+        print(response.decode())
 
     # Creates SSL socket
     def createSSLSocket(self):
