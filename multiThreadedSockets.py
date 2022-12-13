@@ -147,11 +147,12 @@ class User:
 
 # For combining contacts and User ^ could combine if you wanted to, would require some changing
 class ServerUser:
-
-    def __init__(self, name, email, contacts):
+    def __init__(self, name, email, contacts, password, salt):
         self.name = name
         self.email = email
         self.contacts = contacts
+        self.password = password
+        self.salt = salt
 
 # Client side
 class clientSide():
@@ -166,7 +167,8 @@ class clientSide():
 
     # Send class with name, email, contacts to server
     def sendObjectToServer(self):
-        temp = ServerUser(self.local_user.name,self.local_user.email,self.contacts)
+        data = json.loads(open("user.json", "r").read())
+        temp = ServerUser(self.local_user.name,self.local_user.email,self.contacts, data["password"], data["salt"])
         temp_pickle_string = pickle.dumps(temp)
         self.client_socket.send(temp_pickle_string)
 
@@ -200,7 +202,6 @@ class clientSide():
     def loadUser(self):
         if os.path.exists("user.json") is False or os.path.getsize("user.json") == 0:
             return None
-        # TODO: decrypt file here after above encryption
         data = json.loads(open("user.json", "r").read())
         # if the user.json file is wrong, treat it as if the user file doesn't exist
         if data["name"] is None or data["email"] is None or data["password"] is None:
@@ -213,7 +214,7 @@ class clientSide():
             else:
                 break
         # dont store the users password in this object, as it isnt needed anymore
-        return User(util.Encrypt(data["name"]), util.Encrypt(data["email"]))
+        return User(data["name"], data["email"])
 
     # loads the user's contacts from the filesystem
     def loadContacts(self):
@@ -240,12 +241,13 @@ class clientSide():
         name = input('Enter Full Name: ')
         email = input('Enter Email Address: ')
         # ensure the user cannot add themselves
-        if name == util.Decrypt(self.local_user.name) or email == util.Decrypt(self.local_user.email):
+        data = json.loads(open("user.json", "r").read())
+        if name == util.Decrypt(self.local_user.name, data["password"], data["salt"]) or email == util.Decrypt(self.local_user.email, data["password"], data["salt"]):
             print("You may not add yourself as a contact.")
             return
         # ensure the user doesn't already exist
-        name = util.Encrypt(name)
-        email = util.Encrypt(email)
+        name = util.Encrypt(name, data["password"], data["salt"])
+        email = util.Encrypt(email, data["password"], data["salt"])
         if self.contacts is not None:
             for user in self.contacts:
                 if user.name == name or user.email == email:

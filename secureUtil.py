@@ -5,31 +5,20 @@ from base64 import b64encode, b64decode
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-import json
 
 class secureUtil():
-    # Usage - Return password from json in memory
-    def retrievePassword(self):
-        data = json.loads(open("user.json", "r").read())
-        return data["password"]
-
-    # Usage - Return salt from json in memory
-    def retrieveSalt(self):
-        data = json.loads(open("user.json", "r").read())
-        hold = b64decode(data["salt"])
-        return hold
     """
     Usage: Takes in data variable non encoded and encrypts data
     Return Value: returns encrypted data non byte encoded
     Notes: This can be used when reading from json file, to encrypt that data then return json writeable data
     """
-    def Encrypt(self, data):
+    def Encrypt(self, data, passwd, salt):
         #Encrypt data passed
         data = data.encode('utf-8')
         #password = get password
-        password = self.retrievePassword().encode('utf-8')
+        password = passwd.encode('utf-8')
         #Retreive salt
-        salt = self.retrieveSalt()
+        salt = b64decode(salt)
         kdf = PBKDF2HMAC(algorithm=hashes.SHA256(),
             length=32,
             salt=salt,
@@ -46,12 +35,12 @@ class secureUtil():
     Return Value: returns decrypted data non byte encoded
     Notes: This can be used when reading from json file, to decrypt that data then return readable data
     """
-    def Decrypt(self, data):
+    def Decrypt(self, data, passwd, salt):
         data = data.encode('utf-8')
         #password = get password
-        password = self.retrievePassword().encode('utf-8')
+        password = passwd.encode('utf-8')
         #Retreive salt
-        salt = self.retrieveSalt()
+        salt = b64decode(salt)
         kdf = PBKDF2HMAC(algorithm=hashes.SHA256(),
             length=32,
             salt=salt,
