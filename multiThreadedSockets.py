@@ -150,6 +150,7 @@ class serverSide():
         # if the target or source (somehow) doesn't exist, return failure
         if user_source is None or user_target is None:
             user_source.client.send("SEND FAIL".encode())
+            return
 
         #search for receiver in sender's contact list
         for contact in user_source.contacts:
@@ -202,7 +203,7 @@ class serverSide():
             if message == "EXIT":
                 data = connection.recv(2048)
                 self.handleLogout(data)
-                connection.close()
+                break
             elif message == "LOGIN":
                 # Pass raw data, this is receving the pickled object
                 data = connection.recv(2048)
@@ -246,6 +247,7 @@ class serverSide():
                 connection.close()
                 # Unclean
                 os._exit(1)
+        connection.close()
 
     """
     Usage: Receives a connection request and starts a new thread to handle their requests
