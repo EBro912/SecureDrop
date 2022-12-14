@@ -88,7 +88,41 @@ class serverSide():
             if self.isUserLoggedIn(name,email):
                 online_users += "\n* {0} <{1}>".format(name, email)
         return online_users.encode()
+    # Check passed contact list from user against online contacts
+    def checkAvailableUser(self, connection):
+        data = connection.recv(2048)
+        source = pickle.loads(data)
+        print(f"    RECEIVED SOURCE: {source.name} <{source.email}>")
+        
+        data = connection.recv(2048)
+        target = pickle.loads(data)
+        print(f"    RECEIVED TARGET: <{target}>")
 
+        for user in self.logged_in_users:
+            if user.name == source.name and user.email == source.email:
+                source = user
+                break
+
+        for user in self.logged_in_users:
+            if user.email == target:
+                target = user
+                break
+
+        for contact in source.contacts:
+            name = util.Decrypt(contact.name, source.password, source.salt)
+            email = util.Decrypt(contact.email, source.password, source.salt)
+            if name == target.name and email == target.email:
+                targetInContacts = True
+
+        for contact in target.contacts:
+            name = util.Decrypt(contact.name, target.password, target.salt)
+            email = util.Decrypt(contact.email, target.password, target.salt)
+            if name == source.name and email == source.email:
+                sourceInContacts = True
+
+        if self.isUserLoggedIn(target.name,target.email) and targetInContacts and sourceInContacts:
+            print("REQUIREMENTS ACCOMPLISHED")
+        
     # removes a user from the logged in users list
     # this assumes that only one user with the given name and email exists at a time
     def handleLogout(self, data):
@@ -128,6 +162,9 @@ class serverSide():
                 # Check if users are online from users contact, send them user object
                 data = connection.recv(2048)
                 connection.send(self.checkOnlineUser(data))
+            elif message == "SEND":
+                #TODO: handle contact checking and sending file
+                self.checkAvailableUser(connection)
             elif message == "SHUTDOWN":
                 print("Shutting Down Server ...")
                 connection.sendall("Shutdown Initiated. Goodbye!".encode())
@@ -278,6 +315,25 @@ class clientSide():
         response = self.client_socket.recv(2048)
         print(response.decode())
 
+    # handles sending the file
+    def handleSend(self,receiver,file_path):
+        self.client_socket.send("SEND".encode())
+        # Debugging - Alex
+        # print(self.contacts[0].name)
+        #send local user 
+        pickle_message = pickle.dumps(self.local_user)
+        self.client_socket.send(pickle_message)
+
+        #send the email of the receiving user
+        pickle_message = pickle.dumps(receiver)
+        self.client_socket.send(pickle_message)
+
+        #with open(file_path, "r") as read_file:
+        #    temp = read_file.read()
+        #self.client_socket.send(temp.encode())
+        #response = self.client_socket.recv(2048)
+        #print(response.decode())
+
     # Creates SSL socket
     def createSSLSocket(self):
         try:
@@ -315,8 +371,8 @@ class clientSide():
     # TODO: remove debug response.decode() statements
     def handleUI(self):
         #choice = input("1. Input message to send\n2. Send file\n8. Exit server\n9. Send Shutdown Message to Server\nChoose option: ")
-        data = input("secure_drop> ").lower().split(' ');
-        choice = data[0]
+        data = input("secure_drop> ").split(' ');
+        choice = data[0].lower()
         args = data[1:]
         if choice == "help":
             print('  "add" -> Add a new contact')
@@ -345,12 +401,10 @@ class clientSide():
         # TODO: make this require a contact and path parameter
         # as per the requirements
         elif choice == "send":
-            file_path = input("Enter filepath: ")
-            with open(file_path, "r") as read_file:
-                temp = read_file.read()
-            self.client_socket.send(temp.encode())
-            response = self.client_socket.recv(2048)
-            print(response.decode())
+            if len(data) > 1:
+                receiver = args[0]
+                file_path = args[1]
+            self.handleSend(receiver,file_path)
         else:
             print('Unknown command.\nType "help" for commands.\n')
             
