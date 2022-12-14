@@ -1,16 +1,17 @@
 import base64
 # For Encoding / Decoding the salt
-from base64 import b64encode, b64decode
+from base64 import b64decode
 # For Encrpyting / Decrpyting
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
+
+# Util class for encryption related functions
 class secureUtil():
     """
     Usage: Takes in data variable non encoded and encrypts data
     Return Value: returns encrypted data non byte encoded
-    Notes: This can be used when reading from json file, to encrypt that data then return json writeable data
     """
     def Encrypt(self, data, passwd, salt):
         #Encrypt data passed
@@ -33,7 +34,6 @@ class secureUtil():
     """
     Usage: Takes in data variable non encoded and decrypts data
     Return Value: returns decrypted data non byte encoded
-    Notes: This can be used when reading from json file, to decrypt that data then return readable data
     """
     def Decrypt(self, data, passwd, salt):
         data = data.encode('utf-8')

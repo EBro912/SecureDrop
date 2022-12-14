@@ -5,10 +5,8 @@ import ssl
 import json
 import pwinput
 import bcrypt
-from base64 import b64encode, b64decode
+from base64 import b64encode
 from secureUtil import secureUtil
-# from threading import Thread
-import sys
 
 import pickle
 #-------------------------------------------------
@@ -23,7 +21,6 @@ import pickle
 util = secureUtil()
 
 class serverSide():
-    # If the filepath changes, or you wnat to change port/ host etc
     def __init__(self):
         self.host = '127.0.0.1'
         self.port = 52000
@@ -31,8 +28,12 @@ class serverSide():
         self.cert_file = "keys/certificate.pem"
         self.server_socket = self.createSSLSocket()
         self.logged_in_users = []
+        self.active_transfer = None
 
-    # Creates SSL wrapped socket
+    """
+    Usage: Creates a new SSL socket using a key and certificate
+    Return Value: the newly created socket
+    """
     def createSSLSocket(self):
         try:
             socket_object = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -44,7 +45,10 @@ class serverSide():
         except socket.error as error:
             print("Socket creation failed with error code: '{0}'".format(error))
 
-    # Handles binding port/host and listening -> initiates handleconnections
+    """
+    Usage: Starts the server and begins listening for new connections
+    Return Value: None
+    """
     def startServer(self):
         try:
             self.server_socket.bind((self.host,self.port))
@@ -55,12 +59,21 @@ class serverSide():
         while True:
             self.handleConnections()
 
-    def handleReceivingContacts(self, data):
+    """
+    Usage: Enters a user into the logged_in_users array when they log in using the provided data
+    Return Value: None
+    """
+    def handleReceivingContacts(self, data, connection):
         # unpickle user login data
         pickle_object = pickle.loads(data)
+        pickle_object.client = connection
         # add the user to the list of logged in users
         self.logged_in_users.append(pickle_object)
 
+    """
+    Usage: Updates a user's contacts on the server when they add a user to their contacts
+    Return Value: None
+    """
     def handleUpdateContacts(self, data):
         # unpickle user login data
         pickle_object = pickle.loads(data)
@@ -69,7 +82,10 @@ class serverSide():
                 user.contacts = pickle_object.contacts
                 return
 
-    # Check passed contact list from user against online contacts
+    """
+    Usage: Retrieves information related to which contacts are online
+    Return Value: A list of contacts that are online
+    """
     def checkOnlineUser(self, data):
         pickle_object = pickle.loads(data)
         online_users = "  The following contacts are online:"
@@ -100,45 +116,67 @@ class serverSide():
                                 break
         return online_users.encode()
 
-    # Check passed contact list from user against online contacts
+    """
+    Usage: Checks if a user is valid to send a file to 
+    Return Value: None
+    """
     def checkAvailableUser(self, connection):
         #receive sender's information
         data = connection.recv(2048)
         source = pickle.loads(data)
-        print(f"    RECEIVED SOURCE: {source.name} <{source.email}>")
-        #receive receiver's email
+        
         data = connection.recv(2048)
         target = pickle.loads(data)
-        print(f"    RECEIVED TARGET: <{target}>")
-        #find sender in list to get it's contacts
+
+        if self.active_transfer is not None:
+            connection.send("BUSY".encode())
+            return
+
+        sourceInContacts = False
+        targetInContacts = False
+        user_source = None
+        user_target = None
+
         for user in self.logged_in_users:
             if user.name == source.name and user.email == source.email:
-                source = user
+                user_source = user
                 break
         #find receiver in list to get it's contacts
         for user in self.logged_in_users:
             if user.email == target:
-                target = user
+                user_target = user
                 break
+
+        # if the target or source (somehow) doesn't exist, return failure
+        if user_source is None or user_target is None:
+            user_source.client.send("SEND FAIL".encode())
+
         #search for receiver in sender's contact list
-        for contact in source.contacts:
-            name = util.Decrypt(contact.name, source.password, source.salt)
-            email = util.Decrypt(contact.email, source.password, source.salt)
-            if name == target.name and email == target.email:
+        for contact in user_source.contacts:
+            name = util.Decrypt(contact.name, user_source.password, user_source.salt)
+            email = util.Decrypt(contact.email, user_source.password, user_source.salt)
+            if name == user_target.name and email == user_target.email:
                 targetInContacts = True
         #search for sender in receiver's contact list
-        for contact in target.contacts:
-            name = util.Decrypt(contact.name, target.password, target.salt)
-            email = util.Decrypt(contact.email, target.password, target.salt)
-            if name == source.name and email == source.email:
+        for contact in user_target.contacts:
+            name = util.Decrypt(contact.name, user_target.password, user_target.salt)
+            email = util.Decrypt(contact.email, user_target.password, user_target.salt)
+            if name == user_source.name and email == user_source.email:
                 sourceInContacts = True
-        #check for all requirements before asking receiver to accept file
-        if self.isUserLoggedIn(target.name,target.email) and targetInContacts and sourceInContacts:
-            #TODO: send request to receiver
-            print("REQUIREMENTS ACCOMPLISHED")
+
+        if user_target is not None and self.isUserLoggedIn(user_target.name,user_target.email) and targetInContacts and sourceInContacts:
+            user_target.client.send("FILE".encode())
+            # send who is sending the file
+            temp_pickle_string = pickle.dumps(User(user_source.name, user_source.email))
+            user_target.client.send(temp_pickle_string)
+            self.active_transfer = [user_source, user_target]
+        else:
+            user_source.client.send("SEND FAIL".encode())
         
-    # removes a user from the logged in users list
-    # this assumes that only one user with the given name and email exists at a time
+    """
+    Usage: Removes a user from the logged in users list. This assumes that only one user with the given name and email exists at a time
+    Return Value: None
+    """
     def handleLogout(self, data):
         pickle_object = pickle.loads(data)
         for user in self.logged_in_users:
@@ -146,17 +184,17 @@ class serverSide():
                 self.logged_in_users.remove(user)
                 return
 
-    # checks if the a user with the given name and email is logged in/online
+    """
+    Usage: Checks if a user is currently "logged in"
+    Return Value: True if they are, False if not
+    """
     def isUserLoggedIn(self, name, email):
         return any(x.name == name and x.email == email for x in self.logged_in_users)
-        # Debugging - Alex
-        # for user in self.logged_in_users:
-        #     print("Currently checking -> {0} , {1}\n {2} , {3}".format(name,email,user.name,user.email))
-        #     if user.name == name and user.email == email:
-        #         print("equal")
-        #         return True
 
-    # USE THIS to handle incoming requests to the server
+    """
+    Usage: Handles incoming requests from a client
+    Return Value: None
+    """
     def handleClient(self,connection):
         while True:
             data = connection.recv(2048)
@@ -168,7 +206,7 @@ class serverSide():
             elif message == "LOGIN":
                 # Pass raw data, this is receving the pickled object
                 data = connection.recv(2048)
-                self.handleReceivingContacts(data)
+                self.handleReceivingContacts(data, connection)
             elif message == "UPDATE CONTACTS":
                 data = connection.recv(2048)
                 self.handleUpdateContacts(data)
@@ -177,19 +215,42 @@ class serverSide():
                 data = connection.recv(2048)
                 connection.send(self.checkOnlineUser(data))
             elif message == "SEND":
-                #TODO: handle contact checking and sending file
                 self.checkAvailableUser(connection)
+            elif message == "SEND FILE":
+                # get the size and filepath of the file being sent
+                size = int.from_bytes(connection.recv(4), 'big')
+                filepath = connection.recv(2048).decode('utf-8')
+                file = bytearray()
+                # read all the bytes sent
+                while size:
+                        data = connection.recv(min(size, 4096))
+                        size -= len(data)
+                        file += bytearray(data)
+                # send the read bytes over to the recipient
+                self.active_transfer[1].client.send("RECEIVE FILE".encode())
+                self.active_transfer[1].client.send(len(file).to_bytes(4, 'big'))
+                self.active_transfer[1].client.send(filepath.encode())
+                self.active_transfer[1].client.send(file)
+            elif message == "FILE RECEIVED": 
+                # after the file has been successfully sent, notify the sender
+                self.active_transfer[0].client.send("SEND SUCCESS".encode())
+                self.active_transfer = None
+            elif message == "ACCEPT":
+                self.active_transfer[0].client.send("SEND ACCEPTED".encode())
+            elif message == "DECLINE":               
+                self.active_transfer[0].client.send("SEND DECLINED".encode())
+                self.active_transfer = None
             elif message == "SHUTDOWN":
                 print("Shutting Down Server ...")
                 connection.sendall("Shutdown Initiated. Goodbye!".encode())
                 connection.close()
                 # Unclean
                 os._exit(1)
-            # I just have it sending back what the client sent, change to whatever you want to send back
-            # reply = "Server: {0}".format(message)
-            # connection.sendall(reply.encode())
 
-    # Multithreading
+    """
+    Usage: Receives a connection request and starts a new thread to handle their requests
+    Return Value: None
+    """
     def handleConnections(self):
         client, address = self.server_socket.accept()
         print("Connected to: {0}:{1}".format(address[0],str(address[1])))
@@ -203,7 +264,8 @@ class User:
         self.name = name
         self.email = email
 
-# For combining contacts and User ^ could combine if you wanted to, would require some changing
+# For combining contacts and User object, as well as other data for encryption purposes
+# Note: password here is encrypted
 class ServerUser:
     def __init__(self, name, email, contacts, password, salt):
         self.name = name
@@ -211,6 +273,7 @@ class ServerUser:
         self.contacts = contacts
         self.password = password
         self.salt = salt
+        self.client = None
 
 # Client side
 class clientSide():
@@ -223,20 +286,29 @@ class clientSide():
         self.local_user = self.loadUser()
         self.contacts = self.loadContacts()
 
-    # Send class with name, email, contacts to server
+    """
+    Usage: Sends a user's contacts and other information to the server for later use
+    Return Value: None
+    """
     def sendObjectToServer(self):
         data = json.loads(open("user.json", "r").read())
         temp = ServerUser(self.local_user.name,self.local_user.email,self.contacts, data["password"], data["salt"])
         temp_pickle_string = pickle.dumps(temp)
         self.client_socket.send(temp_pickle_string)
 
-    # Send only our name and email when we log out
+    """
+    Usage: Requests a logout from the server
+    Return Value: None
+    """
     def sendLogoutToServer(self):
         temp_pickle_string = pickle.dumps(self.local_user)
         self.client_socket.send("EXIT".encode())
         self.client_socket.send(temp_pickle_string)
 
-    # creates a new user if one doesnt exist
+    """
+    Usage: Creates a new user if one doesn't exist
+    Return Value: None
+    """
     def createUser(self):
         name = input('Enter Full Name: ')
         email = input('Enter Email Address: ')
@@ -256,7 +328,10 @@ class clientSide():
                 output.write(json.dumps({"name": name, "email": email, "password": enc_pass, "salt": salt}))
             print("User Registered.")
 
-    # loads the user data from the filesystem
+    """
+    Usage: Loads a user's information
+    Return Value: A new User object containing their data, or None if it doesnt exist
+    """
     def loadUser(self):
         if os.path.exists("user.json") is False or os.path.getsize("user.json") == 0:
             return None
@@ -274,7 +349,10 @@ class clientSide():
         # dont store the users password in this object, as it isnt needed anymore
         return User(data["name"], data["email"])
 
-    # loads the user's contacts from the filesystem
+    """
+    Usage: Loads a user's contacts
+    Return Value: An array of User objects for each contact, or an empty array if they dont have any
+    """
     def loadContacts(self):
         if os.path.exists("contacts.json") is False or os.path.getsize("contacts.json") == 0:
             return []
@@ -287,14 +365,20 @@ class clientSide():
             contacts.append(User(user['name'], user['email']))
         return contacts
 
-    # saves the user's contacts to the filesystem
+    """
+    Usage: Saves a user's contacts to the filesystem
+    Return Value: None
+    """
     def saveContacts(self):
         with open('contacts.json', 'w') as output:
             output.write(json.dumps([x.__dict__ for x in self.contacts]))
         self.client_socket.send("UPDATE CONTACTS".encode())
         self.sendObjectToServer()
 
-    # handles adding a new contact to the user's contact list
+    """
+    Usage: Handles adding a contact to the user's contacts
+    Return Value: None
+    """
     def handleAdd(self):
         name = input('  Enter Full Name: ')
         email = input('  Enter Email Address: ')
@@ -319,7 +403,10 @@ class clientSide():
         print('  Contact Added.')
         self.saveContacts()
     
-    # handles listing the user's contacts
+    """
+    Usage: Handles listing out a user's online contacts
+    Return Value: None
+    """
     def handleList(self):
         self.client_socket.send("LIST USERS".encode())
         # Debugging - Alex
@@ -329,9 +416,14 @@ class clientSide():
         response = self.client_socket.recv(2048)
         print(response.decode())
 
-    # handles sending the file
+    """
+    Usage: Handles sending a file to another user
+    Return Value: None
+    """
     def handleSend(self,receiver,file_path):
-        #send command for server
+        if not os.path.exists(file_path):
+            print("Send failed, filepath does not exist.")
+            return
         self.client_socket.send("SEND".encode())
         # Debugging - Alex
         # print(self.contacts[0].name)
@@ -344,14 +436,72 @@ class clientSide():
         pickle_message = pickle.dumps(receiver)
         self.client_socket.send(pickle_message)
 
-        #TODO: decomment when ready to send file
-        #with open(file_path, "r") as read_file:
-        #    temp = read_file.read()
-        #self.client_socket.send(temp.encode())
-        #response = self.client_socket.recv(2048)
-        #print(response.decode())
+        data = self.client_socket.recv(2048)
+        message = data.decode('utf-8')
+        if message == "BUSY":
+            print("The server is busy with another file transfer. Please wait.")
+        elif message == "SEND FAIL":
+            print("File send failed. Contact is either not online, not in your contacts, or is busy.")
+        elif message == "SEND ACCEPTED":
+            print("Contact has accepted the transfer request.")
+            with open(file_path, 'rb') as file:
+                # send the file to the server as well as information related to the file
+                bytes = file.read()
+                self.client_socket.send("SEND FILE".encode())
+                self.client_socket.send(len(bytes).to_bytes(4, 'big'))
+                self.client_socket.send(os.path.basename(file_path).encode())
+                self.client_socket.send(bytes)
+            
+            data = self.client_socket.recv(2048)
+            message = data.decode('utf-8')
+            if message == "SEND SUCCESS":
+                print("File has been successfully transferred.")
+            
+        elif message == "SEND DECLINED":
+            print("Contact has declined the transfer request.")
+            
 
-    # Creates SSL socket
+    """
+    Usage: Handles receiving a file from another user
+    Return Value: None
+    """
+    def handleReceive(self):
+        print('Waiting for file requests...')
+        # wait until we get a request
+        data = self.client_socket.recv(2048)
+        message = data.decode('utf-8')
+        if message == "FILE":
+            data = self.client_socket.recv(2048)
+            user = pickle.loads(data)
+            choice = input("Contact {0} <{1}> is sending a file. Accept? (y/n) ".format(user.name, user.email)).lower()
+            if choice == "y":
+                print('Accepted file transfer. Receiving file...')
+                self.client_socket.send("ACCEPT".encode())
+                data = self.client_socket.recv(2048)
+                message = data.decode('utf-8')
+                if message == "RECEIVE FILE":
+                    # read information about the file
+                    size = int.from_bytes(self.client_socket.recv(4), 'big')
+                    filepath = self.client_socket.recv(2048).decode('utf-8')
+                    print(filepath)
+                    print(size)
+                    with open(filepath, 'wb') as file:
+                        # keep receiving bytes until the entire file has been read
+                        while size:
+                            data = self.client_socket.recv(min(size, 4096))
+                            size -= len(data)
+                            file.write(data)              
+                print("File recevied successfully. ({0} | {1} bytes)".format(filepath, size))
+                self.client_socket.send("FILE RECEIVED".encode())
+            else:
+                print('Declined file transfer.')
+                self.client_socket.send("DECLINE".encode())
+
+    
+    """
+    Usage: Creates a new SSL socket using a key and certificate
+    Return Value: the newly created socket
+    """
     def createSSLSocket(self):
         try:
             socket_object = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -364,7 +514,11 @@ class clientSide():
         except socket.error as error:
             print("Socket creation failed with error code: '{0}'".format(error))
 
-    # Initiates connection and starts UI
+    
+    """
+    Usage: Handles starting up the client and connecting to the server
+    Return Value: None
+    """
     def startClient(self):
         if self.local_user is None:
             create = input('No users are registered with this client.\nDo you want to register a new user (y/n)? ').lower()
@@ -381,47 +535,42 @@ class clientSide():
         self.client_socket.send("LOGIN".encode())
         self.sendObjectToServer()
         print('Welcome to SecureDrop.\nType "help" for commands.\n')
-        while True:
-            self.handleUI()
+        self.handleUI()
 
-    # This is where to handle options / adding file functionality etc -----
-    # TODO: remove debug response.decode() statements
+    """
+    Usage: The main secure_drop terminal, which handles input
+    Return Value: None
+    """
     def handleUI(self):
-        #choice = input("1. Input message to send\n2. Send file\n8. Exit server\n9. Send Shutdown Message to Server\nChoose option: ")
-        data = input("secure_drop> ").lower().split(' ');
-        choice = data[0]
-        args = data[1:]
-        if choice == "help":
-            print('  "add" -> Add a new contact')
-            print('  "list" -> List all online contacts')
-            print('  "send" -> Transfer file to contact')
-            print('  "exit" -> Exit SecureDrop')
-            print('  "shutdown" -> DEBUG COMMAND. Shuts down the server')
-        elif choice == "exit":
-            self.sendLogoutToServer()
-            self.client_socket.close()
-            exit()
-        elif choice == "shutdown":
-            self.client_socket.send("SHUTDOWN".encode())
-            response = self.client_socket.recv(2048)
-            print(response.decode())
-            print("Exiting... Goodbye :)")
-            try:
-                self.client_socket.close()
-            except socket.error as e:
-                print(str(e))
-            exit()
-        elif choice == "add":
-            self.handleAdd()
-        elif choice == "list":
-            self.handleList()
-        # TODO: make this require a contact and path parameter
-        # as per the requirements
-        elif choice == "send":
+        while True:
+            data = input("secure_drop> ").split(' ')
+            choice = data[0].lower()
             if len(data) > 1:
-                receiver = args[0]
-                file_path = args[1]
-            self.handleSend(receiver,file_path)
-        else:
-            print('Unknown command.\nType "help" for commands.\n')
-            
+                args = data[1:]
+            if choice == "help":
+                print('  "add" -> Add a new contact')
+                print('  "list" -> List all online contacts')
+                print('  "send" -> Transfer file to contact')
+                print('  "receive" -> Receive a file from contacts')
+                print('  "exit" -> Exit SecureDrop')
+            elif choice == "exit":
+                self.sendLogoutToServer()
+                self.client_socket.close()
+                exit()
+            elif choice == "add":
+                self.handleAdd()
+            elif choice == "list":
+                self.handleList()
+            # TODO: make this require a contact and path parameter
+            # as per the requirements
+            elif choice == "send":
+                if len(args) < 2:
+                    print('Usage: send <contact> <filepath>')
+                else:
+                    receiver = args[0]
+                    file_path = args[1]
+                    self.handleSend(receiver,file_path)
+            elif choice == "receive":
+                self.handleReceive()
+            else:
+                print('Unknown command.\nType "help" for commands.\n')
