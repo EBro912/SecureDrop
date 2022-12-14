@@ -371,8 +371,8 @@ class clientSide():
     # TODO: remove debug response.decode() statements
     def handleUI(self):
         #choice = input("1. Input message to send\n2. Send file\n8. Exit server\n9. Send Shutdown Message to Server\nChoose option: ")
-        data = input("secure_drop> ").split(' ');
-        choice = data[0].lower()
+        data = input("secure_drop> ").lower().split(' ');
+        choice = data[0]
         args = data[1:]
         if choice == "help":
             print('  "add" -> Add a new contact')
