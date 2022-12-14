@@ -40,7 +40,6 @@ class serverSide():
             socket_object.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             # Wrap in ssl with our cert and private key , THIS ONLY WORKS WITH THE KEY YOU USED TO CREATE THE CERTIFICATE
             socket_object = ssl.wrap_socket(socket_object, keyfile=self.key_file, certfile=self.cert_file, ssl_version=ssl.PROTOCOL_TLSv1_2)
-            #print("Socket created successfully ...")
             return socket_object
         except socket.error as error:
             print("Socket creation failed with error code: '{0}'".format(error))
@@ -73,8 +72,9 @@ class serverSide():
     # Check passed contact list from user against online contacts
     def checkOnlineUser(self, data):
         pickle_object = pickle.loads(data)
-        online_users = "The following contacts are online:"
+        online_users = "  The following contacts are online:"
         target = None
+        # Search for the sender's contact list
         for user in self.logged_in_users:
             if user.name == pickle_object.name and user.email == pickle_object.email:
                 target = user
@@ -82,45 +82,59 @@ class serverSide():
         if target is None:
             print("Error: Could not find target user with data " + pickle_object)
             return
+        #check every contact in sender's list
         for contact in target.contacts:
             name = util.Decrypt(contact.name, target.password, target.salt)
             email = util.Decrypt(contact.email, target.password, target.salt)
+            #if the contact is online
             if self.isUserLoggedIn(name,email):
-                online_users += "\n* {0} <{1}>".format(name, email)
+                #search for contact's contact list
+                for user in self.logged_in_users:
+                    if user.name == name and user.email == email:
+                        for contact in user.contacts:
+                            contactName = util.Decrypt(contact.name, user.password, user.salt)
+                            contactEmail = util.Decrypt(contact.email, user.password, user.salt)
+                            #if the sender's info is in the contact's list, add the contact to sender's list
+                            if contactName == target.name and contactEmail == target.email:
+                                online_users += "\n  * {0} <{1}>".format(name, email)
+                                break
         return online_users.encode()
+
     # Check passed contact list from user against online contacts
     def checkAvailableUser(self, connection):
+        #receive sender's information
         data = connection.recv(2048)
         source = pickle.loads(data)
         print(f"    RECEIVED SOURCE: {source.name} <{source.email}>")
-        
+        #receive receiver's email
         data = connection.recv(2048)
         target = pickle.loads(data)
         print(f"    RECEIVED TARGET: <{target}>")
-
+        #find sender in list to get it's contacts
         for user in self.logged_in_users:
             if user.name == source.name and user.email == source.email:
                 source = user
                 break
-
+        #find receiver in list to get it's contacts
         for user in self.logged_in_users:
             if user.email == target:
                 target = user
                 break
-
+        #search for receiver in sender's contact list
         for contact in source.contacts:
             name = util.Decrypt(contact.name, source.password, source.salt)
             email = util.Decrypt(contact.email, source.password, source.salt)
             if name == target.name and email == target.email:
                 targetInContacts = True
-
+        #search for sender in receiver's contact list
         for contact in target.contacts:
             name = util.Decrypt(contact.name, target.password, target.salt)
             email = util.Decrypt(contact.email, target.password, target.salt)
             if name == source.name and email == source.email:
                 sourceInContacts = True
-
+        #check for all requirements before asking receiver to accept file
         if self.isUserLoggedIn(target.name,target.email) and targetInContacts and sourceInContacts:
+            #TODO: send request to receiver
             print("REQUIREMENTS ACCOMPLISHED")
         
     # removes a user from the logged in users list
@@ -254,7 +268,7 @@ class clientSide():
             entered_email = input('Enter Email Address: ')
             entered_password = pwinput.pwinput('Enter Password: ')
             if entered_email != data["email"] or bcrypt.checkpw(entered_password.encode('utf-8'), str(data["password"]).encode('utf-8')) is False:
-                print('Email and Password Combination Invalid.')
+                print('Email and Password Combination Invalid.\n')
             else:
                 break
         # dont store the users password in this object, as it isnt needed anymore
@@ -282,8 +296,8 @@ class clientSide():
 
     # handles adding a new contact to the user's contact list
     def handleAdd(self):
-        name = input('Enter Full Name: ')
-        email = input('Enter Email Address: ')
+        name = input('  Enter Full Name: ')
+        email = input('  Enter Email Address: ')
         # ensure the user cannot add themselves
         data = json.loads(open("user.json", "r").read())
         if name == self.local_user.name or email == self.local_user.email:
@@ -302,7 +316,7 @@ class clientSide():
                     return
         # use the User class to also store contacts
         self.contacts.append(User(name, email))
-        print('Contact Added.')
+        print('  Contact Added.')
         self.saveContacts()
     
     # handles listing the user's contacts
@@ -317,9 +331,11 @@ class clientSide():
 
     # handles sending the file
     def handleSend(self,receiver,file_path):
+        #send command for server
         self.client_socket.send("SEND".encode())
         # Debugging - Alex
         # print(self.contacts[0].name)
+
         #send local user 
         pickle_message = pickle.dumps(self.local_user)
         self.client_socket.send(pickle_message)
@@ -328,6 +344,7 @@ class clientSide():
         pickle_message = pickle.dumps(receiver)
         self.client_socket.send(pickle_message)
 
+        #TODO: decomment when ready to send file
         #with open(file_path, "r") as read_file:
         #    temp = read_file.read()
         #self.client_socket.send(temp.encode())
@@ -342,7 +359,7 @@ class clientSide():
             socket_object.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             # Wrap in ssl with our cert and using TLS v1.2 or Greater
             socket_object = ssl.wrap_socket(socket_object, keyfile=self.key_file, certfile=self.cert_file, ssl_version=ssl.PROTOCOL_TLSv1_2)
-            print("Socket created successfully ...")
+            #print("Socket created successfully ...")
             return socket_object
         except socket.error as error:
             print("Socket creation failed with error code: '{0}'".format(error))
